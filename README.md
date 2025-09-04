@@ -17,17 +17,21 @@ other:
 * GF-Complete: https://github.com/ceph/gf-complete
 
 ### Autotools
+
+docker start ceph_build
+docker exec -it -w /ceph/cerasure ceph_build /bin/bash
+
 To build and install the library with autotools it is usually sufficient to run:
 
     ./autogen.sh
     ./configure
-    make
+    make LDFLAGS="-Wl,--allow-multiple-definition"
     sudo make install
 
-### Makefile
+<!-- ### Makefile
 To use a standard makefile run:
 
-    make -f Makefile.unx
+    make -f Makefile.unx -->
 
 ### Other make targets
 Other targets include:

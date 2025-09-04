@@ -141,7 +141,9 @@ int main(int argc, char *argv[])
 	//vandermonde_sub_coding_matrix_all(k, p, w,0,&flag);
 	//vandermonde_all(w);
 	//count_one_R_all(w);
-	int len=10*1024*1024;
+	// int len = 10 * 1024 * 1024;
+	int len = l * 1024 * 1024;
+
 	//mds_prove(k,p,w);
 
 	// RS encoding
@@ -176,7 +178,7 @@ int main(int argc, char *argv[])
 	double decode_v=((((double)decodedata))/1024/1024/1024)/((double)decode_time_all/1000/1000/1000);
 	// printf("%ld ",encode_time_all);
 	printf("%.2lf\n",encode_v);
-	// printf("%.2lf ",decode_v);
+	printf("%.2lf\n ",decode_v);
 
 	return 0;
 }
@@ -201,7 +203,8 @@ int encode_deforest_test(int k, int p, int w, int len, int packetsize,int e)
 	int** schedule;
 	m=k+p;
 
-	int datasize=10*1024*1024;
+	// int datasize = 10 * 1024 * 1024;
+	int datasize = len;
 
 	alignlen = datasize/k;
 	//align len with w*packetsize
