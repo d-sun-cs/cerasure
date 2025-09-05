@@ -2099,3 +2099,264 @@ void two_tone_decode_data(int k, int m, int blocksize, uint8_t **chunks, int *er
         }
     }
 }
+
+// v-1
+
+void two_tone_decode_data(int k, int m, int blocksize, uint8_t **chunks, int *eraseds)
+{
+    int eraseds_cnt = 0;
+    int coding_data_map[Mval] = {0, 0, k - 1};
+    int need_decoded[Mval] = {-1, -1, -1};
+
+    int erasure_data[Mval] = {-1, -1, -1};
+    int erasure_data_count = 0;
+
+    int retension_data[k];
+    int retension_data_count = 0;
+
+    int retension_coding_count = 0;
+
+    uint8_t *data[k];
+    uint8_t *coding[Mval];
+    // int last_erasure_coding_idx = -1;
+
+    uint8_t *maperasure_ptr[Mval] = {NULL, NULL, NULL};
+    uint8_t *parity_ptr[Mval] = {NULL, NULL, NULL};
+
+    int i, j;
+    for (i = 0; i < k + m; i++)
+    {
+        if (i < k)
+        {
+            // 数据块
+            data[i] = chunks[i];
+            if (eraseds[eraseds_cnt] == i)
+            {
+                erasure_data[erasure_data_count] = i;
+                erasure_data_count++;
+                eraseds_cnt++;
+            }
+            else
+            {
+                retension_data[retension_data_count] = i;
+                retension_data_count++;
+            }
+        }
+        else
+        {
+            // 校验块
+            int parity_idx = i - k;
+            coding[parity_idx] = chunks[i];
+            if (eraseds[eraseds_cnt] != i)
+            {
+                if (retension_coding_count < erasure_data_count)
+                {
+                    need_decoded[parity_idx] = (coding_data_map[parity_idx] = erasure_data[retension_coding_count]);
+                    maperasure_ptr[parity_idx] = data[coding_data_map[parity_idx]];
+                    parity_ptr[parity_idx] = coding[parity_idx];
+                }
+                retension_coding_count++;
+            }
+            else
+            {
+                // maperasure_ptr[parity_idx] = coding[parity_idx];
+                // last_erasure_coding_idx = parity_idx;
+                eraseds_cnt++;
+            }
+        }
+    }
+
+    retension_data[retension_data_count] = -1;
+    // if (erasure_data_count == 1 && retension_coding_count == Mval)
+    // {
+    // 	return decode_one_data_chunk(data, coding[1], blocksize, erasure_data[0]);
+    // }
+
+    const int TOTAL_SLICE_NUM = blocksize / SLICE;
+    const int window_size = DECODE_WINDOW_SIZE;
+    const int windows_num = TOTAL_SLICE_NUM / window_size;
+
+    long slice_offset[3];
+    __m256i mxx0, mxx1, mxx2, mxx3, tmp;
+    __m256i res[3];
+
+    // uint8_t *zeros = (uint8_t *)aligned_alloc(SLICE, SLICE);
+    // _mm256_store_si256((__m256i *)zeros, _mm256_setzero_si256());
+
+    int window_id, slice_id, retension_data_idx;
+    for (window_id = -1; window_id <= windows_num; window_id++)
+    {
+        // init maperasure by parity
+        // if (window_id < windows_num)
+        // {
+        // 	const int slice_id_start = (window_id + 1) * window_size;
+        // 	const int slice_id_end = slice_id_start + window_size;
+
+        // 	slice_offset[0] = (slice_id_start - coding_data_map[0]) * SLICE;
+        // 	slice_offset[1] = slice_id_start * SLICE;
+        // 	slice_offset[2] = (slice_id_start - (k - 1) + coding_data_map[2]) * SLICE;
+        // 	for (i = 0; i < 3; i++)
+        // 	{
+        // 		if (maperasure_ptr[i] != NULL)
+        // 		{
+        // 			for (slice_id = slice_id_start; slice_id < slice_id_end; slice_id++)
+        // 			{
+        // 				if (slice_offset[i] >= 0)
+        // 				{
+        // 					tmp = _mm256_load_si256((__m256i *)&parity_ptr[i][slice_id * SLICE]);
+        // 					_mm256_store_si256((__m256i *)&maperasure_ptr[i][slice_offset[i]], tmp);
+        // 				}
+        // 				slice_offset[i] += SLICE;
+        // 			}
+        // 		}
+        // 	}
+        // }
+
+        // substitute
+        if (0 <= window_id && window_id < windows_num)
+        {
+            const int slice_id_start = window_id * window_size;
+            const int slice_id_end = slice_id_start + window_size;
+
+            for (retension_data_idx = 0; retension_data_idx < retension_data_count; retension_data_idx++)
+            {
+
+                int retension_data_chunk_idx = retension_data[retension_data_idx];
+                if (retension_data[retension_data_idx + 1] - retension_data_chunk_idx == 1)
+                {
+                    // mxx2 = _mm256_load_si256((__m256i *)data[retension_data_chunk_idx][(slice_id_start - 1) * SLICE]);
+                    // mxx3 = _mm256_load_si256((__m256i *)data[retension_data_chunk_idx + 1][(slice_id_start - 1) * SLICE]);
+                    for (slice_id = slice_id_start; slice_id < slice_id_end; slice_id++)
+                    {
+
+                        slice_offset[1] = slice_id * SLICE;
+                        // slice_offset[0] = (slice_id + retension_data_chunk_idx - coding_data_map[0]) * SLICE;
+                        // slice_offset[2] = (slice_id + coding_data_map[2] - retension_data_chunk_idx - 1) * SLICE; // for retension_data_chunk_idx + 1
+
+                        slice_offset[0] = (slice_id + retension_data_chunk_idx) * SLICE;
+                        slice_offset[2] = (slice_id + k - retension_data_chunk_idx - 2) * SLICE; // for retension_data_chunk_idx + 1
+
+                        mxx0 = _mm256_load_si256((__m256i *)&data[retension_data_chunk_idx][slice_offset[1]]);
+                        mxx1 = _mm256_load_si256((__m256i *)&data[retension_data_chunk_idx + 1][slice_offset[1]]);
+
+                        if (erasure_data[0] != -1)
+                        {
+                            if (slice_id == slice_id_start)
+                            {
+                                res[0] = mxx0;
+                            }
+                            else
+                            {
+                                res[0] = _mm256_xor_si256(mxx0, mxx3);
+                            }
+                            tmp = _mm256_load_si256((__m256i *)&coding[0][slice_offset[0]]);
+                            res[0] = _mm256_xor_si256(res[0], tmp);
+                            _mm256_store_si256((__m256i *)&coding[0][slice_offset[0]], res[0]);
+                            if (slice_id == slice_id_end - 1)
+                            {
+                                tmp = _mm256_load_si256((__m256i *)&coding[0][slice_offset[0] + SLICE]);
+                                res[0] = _mm256_xor_si256(mxx1, tmp);
+                                _mm256_store_si256((__m256i *)&coding[0][slice_offset[0] + SLICE], res[0]);
+                            }
+                        }
+                        if (erasure_data[1] != -1)
+                        {
+
+                            res[1] = _mm256_xor_si256(mxx1, mxx0);
+                            tmp = _mm256_load_si256((__m256i *)&coding[1][slice_offset[1]]);
+                            res[1] = _mm256_xor_si256(res[1], tmp);
+                            _mm256_store_si256((__m256i *)&coding[1][slice_offset[1]], res[1]);
+                        }
+                        if (erasure_data[2] != -1)
+                        {
+                            if (slice_id == slice_id_start)
+                            {
+                                res[2] = mxx1;
+                            }
+                            else
+                            {
+                                res[2] = _mm256_xor_si256(mxx1, mxx2);
+                            }
+                            tmp = _mm256_load_si256((__m256i *)&coding[2][slice_offset[2]]);
+                            res[2] = _mm256_xor_si256(res[2], tmp);
+                            _mm256_store_si256((__m256i *)&coding[2][slice_offset[2]], res[2]);
+                            if (slice_id == slice_id_end - 1)
+                            {
+                                tmp = _mm256_load_si256((__m256i *)&coding[2][slice_offset[2] + SLICE]);
+                                res[2] = _mm256_xor_si256(mxx0, tmp);
+                                _mm256_store_si256((__m256i *)&coding[2][slice_offset[2] + SLICE], res[2]);
+                            }
+                        }
+
+                        mxx2 = mxx0;
+                        mxx3 = mxx1;
+                    }
+
+                    retension_data_idx++;
+                }
+                else
+                {
+                    for (slice_id = slice_id_start; slice_id < slice_id_end; slice_id++)
+                    {
+
+                        slice_offset[1] = slice_id * SLICE;
+
+                        mxx1 = _mm256_load_si256((__m256i *)&data[retension_data_chunk_idx][slice_offset[1]]);
+
+                        slice_offset[0] = (slice_id + retension_data_chunk_idx) * SLICE;
+                        slice_offset[2] = (slice_id + k - 1 - retension_data_chunk_idx) * SLICE;
+
+                        for (i = 0; i < 3; i++)
+                        {
+                            if (erasure_data[i] != -1)
+                            {
+                                tmp = _mm256_load_si256((__m256i *)&coding[i][slice_offset[i]]);
+                                mxx2 = _mm256_xor_si256(mxx1, tmp);
+                                _mm256_store_si256((__m256i *)&coding[i][slice_offset[i]], mxx2);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // elimination
+        if (window_id > 0)
+        {
+            const int solve_slice_id_start = (window_id - 1) * window_size;
+            const int solve_slice_id_end = solve_slice_id_start + window_size;
+
+            for (slice_id = solve_slice_id_start; slice_id < solve_slice_id_end; slice_id++)
+            {
+                slice_offset[1] = slice_id * SLICE;
+                int two_tone_idx[5] = {0, 2, 1, 0, 2};
+                for (i = 0; i < 3; i++)
+                {
+
+                    int erasure_idx = two_tone_idx[i];
+                    if (erasure_data[erasure_idx] != -1)
+                    {
+                        int erasure_data_idx = erasure_data[erasure_idx];
+                        slice_offset[0] = (slice_id + erasure_data_idx) * SLICE;
+                        slice_offset[2] = (slice_id + k - 1 - erasure_data_idx) * SLICE;
+
+                        mxx1 = _mm256_load_si256((__m256i *)&coding[erasure_idx][slice_offset[erasure_idx]]);
+                        _mm256_store_si256((__m256i *)&data[erasure_data_idx][slice_offset[1]], mxx1);
+
+                        for (j = 1; j < 3; j++)
+                        {
+
+                            int other_idx = two_tone_idx[i + j];
+                            if (erasure_data[other_idx] != -1)
+                            {
+                                tmp = _mm256_load_si256((__m256i *)&coding[other_idx][slice_offset[other_idx]]);
+                                mxx2 = _mm256_xor_si256(mxx1, tmp);
+                                _mm256_store_si256((__m256i *)&coding[other_idx][slice_offset[other_idx]], mxx2);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
