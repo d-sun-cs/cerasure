@@ -73,3 +73,4 @@ examples    += 	raid/xor_example
 
 
 lsrc32       += xor_gen_sse.asm pq_gen_sse_i32.asm xor_check_sse.asm pq_check_sse_i32.asm raid_base.c
+

@@ -25,7 +25,7 @@ To build and install the library with autotools it is usually sufficient to run:
 
     ./autogen.sh
     ./configure
-    make LDFLAGS="-Wl,--allow-multiple-definition"
+    make LDFLAGS="-Wl,--allow-multiple-definition" CFLAGS="-mavx2 -O3"
     sudo make install
 
 <!-- ### Makefile
