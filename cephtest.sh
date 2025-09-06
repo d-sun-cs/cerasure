@@ -1,5 +1,5 @@
 # make ex
-make ex CFLAGS="-mavx2 -O3"
+make ex CFLAGS="-mavx2 -O3 -w"
 
 ./raid/xor_example -k 8 -p 3 -l 16 -n 2000 -e 0
 

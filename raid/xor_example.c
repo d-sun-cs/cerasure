@@ -98,6 +98,7 @@ int mds_prove(int k, int p, int w)
 
 #include <immintrin.h> // AVX2 头文件
 #define SLICE 32
+#define SLICE_EXP 5
 #define ENCODE_WINDOW_SIZE 16
 #define DECODE_WINDOW_SIZE 16
 #define EXTRA_DATA_SIZE 512 // 16 * 32 for convinience
@@ -414,11 +415,71 @@ void two_tone_decode(int k, int m, int blocksize, uint8_t **chunks, int *eraseds
 	}
 }
 
+void decode_one_data_chunk(int kval, uint8_t **data, uint8_t *coding, int blocksize, int erasure_idx)
+{
+	const int TOTAL_SLICE_NUM = blocksize / SLICE;
+	const int UNROLL = 4;
+
+	__m256i sum[UNROLL];
+	__m256i tmp[UNROLL];
+
+	uint8_t *tmp_ptr = data[erasure_idx];
+	data[erasure_idx] = coding;
+	coding = tmp_ptr;
+
+	int slice_id = 0;
+	int slice_offset[UNROLL];
+	// Unrolled loop
+	int u, data_idx;
+	for (; slice_id + UNROLL - 1 < TOTAL_SLICE_NUM; slice_id += UNROLL)
+	{
+		for (u = 0; u < UNROLL; ++u)
+			slice_offset[u] = (slice_id + u) << SLICE_EXP;
+
+		// Load first data chunk for each unrolled iteration
+		for (u = 0; u < UNROLL; ++u)
+			sum[u] = _mm256_load_si256((__m256i *)&data[0][slice_offset[u]]);
+
+		// XOR with remaining data chunks
+		for (data_idx = 1; data_idx < kval; data_idx++)
+		{
+			for (u = 0; u < UNROLL; ++u)
+			{
+				tmp[u] = _mm256_load_si256((__m256i *)&data[data_idx][slice_offset[u]]);
+			}
+			for (u = 0; u < UNROLL; ++u)
+			{
+				sum[u] = _mm256_xor_si256(sum[u], tmp[u]);
+			}
+		}
+
+		// Store result
+		for (u = 0; u < UNROLL; ++u)
+		{
+			_mm256_stream_si256((__m256i *)&coding[slice_offset[u]], sum[u]);
+		}
+	}
+
+	// Handle remaining slices
+	// for (; slice_id < TOTAL_SLICE_NUM; ++slice_id)
+	// {
+	// 	int offset = slice_id << SLICE_EXP;
+	// 	__m256i sum1 = _mm256_load_si256((__m256i *)&data[0][offset]);
+	// 	for (data_idx = 1; data_idx < kval; data_idx++)
+	// 	{
+	// 		__m256i tmp1 = _mm256_load_si256((__m256i *)&data[data_idx][offset]);
+	// 		sum1 = _mm256_xor_si256(sum1, tmp1);
+	// 	}
+	// 	_mm256_stream_si256((__m256i *)&coding[offset], sum1);
+	// }
+
+	return 0;
+}
+
 void two_tone_decode_data(int k, int m, int blocksize, uint8_t **chunks, int *eraseds)
 {
 	int eraseds_cnt = 0;
 	int coding_data_map[Mval] = {0, 0, k - 1};
-	int need_decoded[Mval] = {-1, -1, -1};
 
 	int erasure_data[Mval] = {-1, -1, -1};
 	int erasure_data_count = 0;
@@ -426,14 +487,8 @@ void two_tone_decode_data(int k, int m, int blocksize, uint8_t **chunks, int *er
 	int retension_data[k];
 	int retension_data_count = 0;
 
-	int retension_coding_count = 0;
-
 	uint8_t *data[k];
 	uint8_t *coding[Mval];
-	// int last_erasure_coding_idx = -1;
-
-	uint8_t *maperasure_ptr[Mval] = {NULL, NULL, NULL};
-	uint8_t *parity_ptr[Mval] = {NULL, NULL, NULL};
 
 	int i, j;
 	for (i = 0; i < k + m; i++)
@@ -459,21 +514,12 @@ void two_tone_decode_data(int k, int m, int blocksize, uint8_t **chunks, int *er
 			// 校验块
 			int parity_idx = i - k;
 			coding[parity_idx] = chunks[i];
-			if (eraseds[eraseds_cnt] != i)
-			{
-				if (retension_coding_count < erasure_data_count)
-				{
-					need_decoded[parity_idx] = (coding_data_map[parity_idx] = erasure_data[retension_coding_count]);
-					maperasure_ptr[parity_idx] = data[coding_data_map[parity_idx]];
-					parity_ptr[parity_idx] = coding[parity_idx];
-				}
-				retension_coding_count++;
-			}
-			else
-			{
-				eraseds_cnt++;
-			}
 		}
+	}
+
+	if (erasure_data_count == 1) {
+		decode_one_data_chunk(k, data, coding[1], blocksize, erasure_data[0]);
+		return;
 	}
 
 	retension_data[retension_data_count] = -1;
@@ -485,6 +531,8 @@ void two_tone_decode_data(int k, int m, int blocksize, uint8_t **chunks, int *er
 	long slice_offset[3];
 	__m256i mxx0, mxx1, mxx2, mxx3, tmp;
 	__m256i res[3];
+
+	const bool need_decoded[3] = {erasure_data[0] != -1, erasure_data[1] != -1, erasure_data[2] != -1};
 
 	// uint8_t *zeros = (uint8_t *)aligned_alloc(SLICE, SLICE);
 	// _mm256_store_si256((__m256i *)zeros, _mm256_setzero_si256());
@@ -509,8 +557,6 @@ void two_tone_decode_data(int k, int m, int blocksize, uint8_t **chunks, int *er
 					{
 
 						slice_offset[1] = slice_id * SLICE;
-						// slice_offset[0] = (slice_id + retension_data_chunk_idx - coding_data_map[0]) * SLICE;
-						// slice_offset[2] = (slice_id + coding_data_map[2] - retension_data_chunk_idx - 1) * SLICE; // for retension_data_chunk_idx + 1
 
 						slice_offset[0] = (slice_id + retension_data_chunk_idx) * SLICE;
 						slice_offset[2] = (slice_id + k - retension_data_chunk_idx - 2) * SLICE; // for retension_data_chunk_idx + 1
@@ -518,7 +564,8 @@ void two_tone_decode_data(int k, int m, int blocksize, uint8_t **chunks, int *er
 						mxx0 = _mm256_load_si256((__m256i *)&data[retension_data_chunk_idx][slice_offset[1]]);
 						mxx1 = _mm256_load_si256((__m256i *)&data[retension_data_chunk_idx + 1][slice_offset[1]]);
 
-						if (erasure_data[0] != -1)
+						// if (erasure_data[0] != -1)
+						if (need_decoded[0])
 						{
 							if (slice_id == slice_id_start)
 							{
@@ -538,7 +585,8 @@ void two_tone_decode_data(int k, int m, int blocksize, uint8_t **chunks, int *er
 								_mm256_store_si256((__m256i *)&coding[0][slice_offset[0] + SLICE], res[0]);
 							}
 						}
-						if (erasure_data[1] != -1)
+						// if (erasure_data[1] != -1)
+						if (need_decoded[1])
 						{
 
 							res[1] = _mm256_xor_si256(mxx1, mxx0);
@@ -546,7 +594,8 @@ void two_tone_decode_data(int k, int m, int blocksize, uint8_t **chunks, int *er
 							res[1] = _mm256_xor_si256(res[1], tmp);
 							_mm256_store_si256((__m256i *)&coding[1][slice_offset[1]], res[1]);
 						}
-						if (erasure_data[2] != -1)
+						// if (erasure_data[2] != -1)
+						if (need_decoded[2])
 						{
 							if (slice_id == slice_id_start)
 							{
@@ -587,7 +636,8 @@ void two_tone_decode_data(int k, int m, int blocksize, uint8_t **chunks, int *er
 
 						for (i = 0; i < 3; i++)
 						{
-							if (erasure_data[i] != -1)
+							// if (erasure_data[i] != -1)
+							if (need_decoded[i])
 							{
 								tmp = _mm256_load_si256((__m256i *)&coding[i][slice_offset[i]]);
 								mxx2 = _mm256_xor_si256(mxx1, tmp);
@@ -608,32 +658,73 @@ void two_tone_decode_data(int k, int m, int blocksize, uint8_t **chunks, int *er
 			for (slice_id = solve_slice_id_start; slice_id < solve_slice_id_end; slice_id++)
 			{
 				slice_offset[1] = slice_id * SLICE;
-				const int two_tone_idx[5] = {0, 2, 1, 0, 2};
-				for (i = 0; i < 3; i++)
+				if (need_decoded[0])
 				{
+					int erasure_data_idx = erasure_data[0];
+					slice_offset[0] = (slice_id + erasure_data_idx) * SLICE;
 
-					int erasure_idx = two_tone_idx[i];
-					if (erasure_data[erasure_idx] != -1)
+					mxx1 = _mm256_load_si256((__m256i *)&coding[0][slice_offset[0]]);
+					_mm256_stream_si256((__m256i *)&data[erasure_data_idx][slice_offset[1]], mxx1);
+
+					if (need_decoded[1])
 					{
-						int erasure_data_idx = erasure_data[erasure_idx];
-						slice_offset[0] = (slice_id + erasure_data_idx) * SLICE;
+						tmp = _mm256_load_si256((__m256i *)&coding[1][slice_offset[1]]);
+						mxx2 = _mm256_xor_si256(mxx1, tmp);
+						_mm256_store_si256((__m256i *)&coding[1][slice_offset[1]], mxx2);
+					}
+
+					if (need_decoded[2])
+					{
 						slice_offset[2] = (slice_id + k - 1 - erasure_data_idx) * SLICE;
+						tmp = _mm256_load_si256((__m256i *)&coding[2][slice_offset[2]]);
+						mxx2 = _mm256_xor_si256(mxx1, tmp);
+						_mm256_store_si256((__m256i *)&coding[2][slice_offset[2]], mxx2);
+					}
+				}
+				if (need_decoded[2])
+				{
+					int erasure_data_idx = erasure_data[2];
+					slice_offset[2] = (slice_id + k - 1 - erasure_data_idx) * SLICE;
 
-						mxx1 = _mm256_load_si256((__m256i *)&coding[erasure_idx][slice_offset[erasure_idx]]);
-						// _mm256_store_si256((__m256i *)&data[erasure_data_idx][slice_offset[1]], mxx1);
-						_mm256_stream_si256((__m256i *)&data[erasure_data_idx][slice_offset[1]], mxx1);
+					mxx1 = _mm256_load_si256((__m256i *)&coding[2][slice_offset[2]]);
+					_mm256_stream_si256((__m256i *)&data[erasure_data_idx][slice_offset[1]], mxx1);
 
-						for (j = 1; j < 3; j++)
-						{
+					if (need_decoded[0])
+					{
+						slice_offset[0] = (slice_id + erasure_data_idx) * SLICE;
+						tmp = _mm256_load_si256((__m256i *)&coding[0][slice_offset[0]]);
+						mxx2 = _mm256_xor_si256(mxx1, tmp);
+						_mm256_store_si256((__m256i *)&coding[0][slice_offset[0]], mxx2);
+					}
 
-							int other_idx = two_tone_idx[i + j];
-							if (erasure_data[other_idx] != -1)
-							{
-								tmp = _mm256_load_si256((__m256i *)&coding[other_idx][slice_offset[other_idx]]);
-								mxx2 = _mm256_xor_si256(mxx1, tmp);
-								_mm256_store_si256((__m256i *)&coding[other_idx][slice_offset[other_idx]], mxx2);
-							}
-						}
+					if (need_decoded[1])
+					{
+						tmp = _mm256_load_si256((__m256i *)&coding[1][slice_offset[1]]);
+						mxx2 = _mm256_xor_si256(mxx1, tmp);
+						_mm256_store_si256((__m256i *)&coding[1][slice_offset[1]], mxx2);
+					}
+				}
+				if (need_decoded[1])
+				{
+					int erasure_data_idx = erasure_data[1];
+
+					mxx1 = _mm256_load_si256((__m256i *)&coding[1][slice_offset[1]]);
+					_mm256_stream_si256((__m256i *)&data[erasure_data_idx][slice_offset[1]], mxx1);
+
+					if (need_decoded[0])
+					{
+						slice_offset[0] = (slice_id + erasure_data_idx) * SLICE;
+						tmp = _mm256_load_si256((__m256i *)&coding[0][slice_offset[0]]);
+						mxx2 = _mm256_xor_si256(mxx1, tmp);
+						_mm256_store_si256((__m256i *)&coding[0][slice_offset[0]], mxx2);
+					}
+
+					if (need_decoded[2])
+					{
+						slice_offset[2] = (slice_id + k - 1 - erasure_data_idx) * SLICE;
+						tmp = _mm256_load_si256((__m256i *)&coding[2][slice_offset[2]]);
+						mxx2 = _mm256_xor_si256(mxx1, tmp);
+						_mm256_store_si256((__m256i *)&coding[2][slice_offset[2]], mxx2);
 					}
 				}
 			}
@@ -707,6 +798,21 @@ void two_tone_test(int k, int p, int len, int *eraseds)
 		}
 	}
 
+	// print copy_ptrs[0] to log1.txt with hexadecimal
+	// FILE *fp1 = fopen("log1.txt", "w");
+	// if (fp1 == NULL)
+	// {
+	// 	printf("Error opening file!\n");
+	// 	return;
+	// }
+	// for (i = 0; i < blocksize; i++)
+	// {
+	// 	fprintf(fp1, "%02x ", copy_ptrs[0][i]);
+	// 	if ((i + 1) % 16 == 0)
+	// 		fprintf(fp1, "\n");
+	// }
+	// fclose(fp1);
+
 	int erro_num = 0;
 	for (i = 0; i < n; i++)
 	{
@@ -734,7 +840,25 @@ void two_tone_test(int k, int p, int len, int *eraseds)
 		clock_gettime(CLOCK_REALTIME, &time2);
 		encode_time = (time2.tv_sec - time1.tv_sec) * 1000000000 + (time2.tv_nsec - time1.tv_nsec);
 		decode_time_arrs[i] = encode_time;
+
+		// in place decode
+		two_tone_encode(k, m, blocksize, chunks);
 	}
+
+	// print chunks[0] to log2.txt with hexadecimal
+	// FILE *fp2 = fopen("log2.txt", "w");
+	// if (fp2 == NULL)
+	// {
+	// 	printf("Error opening file!\n");
+	// 	return;
+	// }
+	// for (i = 0; i < blocksize; i++)
+	// {
+	// 	fprintf(fp2, "%02x ", chunks[0][i]);
+	// 	if ((i + 1) % 16 == 0)
+	// 		fprintf(fp2, "\n");
+	// }
+	// fclose(fp2);
 
 	// check ptrs and copy_ptrs
 	int flag = 1;
