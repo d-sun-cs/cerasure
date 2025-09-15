@@ -1662,8 +1662,8 @@ void two_tone_test(int k, int p, int len, int *eraseds)
 	for (i = 0; i < en_n; i++)
 	{
 		clock_gettime(CLOCK_REALTIME, &time1);
-		// two_tone_encode(k, m, blocksize, chunks);
-		two_tone_encode2(k, m, blocksize, chunks);
+		two_tone_encode(k, m, blocksize, chunks);
+		// two_tone_encode2(k, m, blocksize, chunks);
 		// two_tone_encode4(k, m, blocksize, chunks);
 		// encode_base_deforestation(k, p, w, schedule, frag_ptrs, &frag_ptrs[k], alignlen, packetsize);
 		clock_gettime(CLOCK_REALTIME, &time2);
@@ -1743,8 +1743,8 @@ void two_tone_test(int k, int p, int len, int *eraseds)
 	{
 		clock_gettime(CLOCK_REALTIME, &time1);
 		// two_tone_decode(k, m, blocksize, chunks, eraseds);
-		// two_tone_decode_data(k, m, blocksize, chunks, eraseds);
-		two_tone_decode_data2(k, m, blocksize, chunks, eraseds);
+		two_tone_decode_data(k, m, blocksize, chunks, eraseds);
+		// two_tone_decode_data2(k, m, blocksize, chunks, eraseds);
 		// two_tone_decode_data4(k, m, blocksize, chunks, eraseds);
 		// two_tone_decode_data_compare(k, m, blocksize, chunks, eraseds);
 		clock_gettime(CLOCK_REALTIME, &time2);
@@ -1752,8 +1752,8 @@ void two_tone_test(int k, int p, int len, int *eraseds)
 		decode_time_arrs[i] = encode_time;
 
 		// in place decode
-		// two_tone_encode(k, m, blocksize, chunks);
-		two_tone_encode2(k, m, blocksize, chunks);
+		two_tone_encode(k, m, blocksize, chunks);
+		// two_tone_encode2(k, m, blocksize, chunks);
 		// two_tone_encode4(k, m, blocksize, chunks);
 	}
 
