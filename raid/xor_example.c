@@ -107,6 +107,9 @@ int mds_prove(int k, int p, int w)
 #define Mval4 4
 #define Mval2 2
 
+typedef void (*TwoToneEncodeFunc)(int, int, int, uint8_t **);
+typedef void (*TwoToneDecodeFunc)(int, int, int, uint8_t **, int *);
+
 void two_tone_encode4(int k, int m, int blocksize, uint8_t **chunks)
 {
 
@@ -1637,6 +1640,25 @@ void two_tone_test(int k, int p, int len, int *eraseds)
 	alldata = len;
 	decodedata = len;
 
+	// assign encode and decode function ptr according to m
+	TwoToneEncodeFunc two_tone_encode_func = NULL;
+	TwoToneDecodeFunc two_tone_decode_func = NULL;
+	if (m == 2)
+	{
+		two_tone_encode_func = two_tone_encode2;
+		two_tone_decode_func = two_tone_decode_data2;
+	}
+	else if (m == 3)
+	{
+		two_tone_encode_func = two_tone_encode;
+		two_tone_decode_func = two_tone_decode_data;
+	}
+	else if (m == 4)
+	{
+		two_tone_encode_func = two_tone_encode4;
+		two_tone_decode_func = two_tone_decode_data4;
+	}
+
 	int i, j, bufsize = blocksize + EXTRA_DATA_SIZE;
 	for (i = 0; i < n; i++)
 	{
@@ -1662,7 +1684,8 @@ void two_tone_test(int k, int p, int len, int *eraseds)
 	for (i = 0; i < en_n; i++)
 	{
 		clock_gettime(CLOCK_REALTIME, &time1);
-		two_tone_encode(k, m, blocksize, chunks);
+		two_tone_encode_func(k, m, blocksize, chunks);
+		// two_tone_encode(k, m, blocksize, chunks);
 		// two_tone_encode2(k, m, blocksize, chunks);
 		// two_tone_encode4(k, m, blocksize, chunks);
 		// encode_base_deforestation(k, p, w, schedule, frag_ptrs, &frag_ptrs[k], alignlen, packetsize);
@@ -1742,9 +1765,10 @@ void two_tone_test(int k, int p, int len, int *eraseds)
 	for (i = 0; i < de_n; i++)
 	{
 		clock_gettime(CLOCK_REALTIME, &time1);
+		two_tone_decode_func(k, m, blocksize, chunks, eraseds);
 		// two_tone_decode(k, m, blocksize, chunks, eraseds);
-		two_tone_decode_data(k, m, blocksize, chunks, eraseds);
-		// two_tone_decode_data2(k, m, blocksize, chunks, eraseds);
+		// two_tone_decode_data(k, m, blocksize, chunks, eraseds);
+		// two_tone_decode_data2(k, my, blocksize, chunks, eraseds);
 		// two_tone_decode_data4(k, m, blocksize, chunks, eraseds);
 		// two_tone_decode_data_compare(k, m, blocksize, chunks, eraseds);
 		clock_gettime(CLOCK_REALTIME, &time2);
@@ -1752,7 +1776,7 @@ void two_tone_test(int k, int p, int len, int *eraseds)
 		decode_time_arrs[i] = encode_time;
 
 		// in place decode
-		two_tone_encode(k, m, blocksize, chunks);
+		two_tone_encode_func(k, m, blocksize, chunks);
 		// two_tone_encode2(k, m, blocksize, chunks);
 		// two_tone_encode4(k, m, blocksize, chunks);
 	}

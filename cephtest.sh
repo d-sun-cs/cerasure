@@ -26,4 +26,13 @@ make ex CFLAGS="-mavx2 -O3 -w"
 ./raid/xor_example -k 8 -p 3 -l 16 -n 2000 -e 0 -e 1 -e 2 -c 0
 ./raid/xor_example -k 8 -p 3 -l 16 -n 2000 -e 0 -e 1 -e 2 -c 1
 
+./raid/xor_example -k 10 -p 4 -l 20 -n 2000 -e 0 -c 0
+./raid/xor_example -k 10 -p 4 -l 20 -n 2000 -e 0 -c 1
+./raid/xor_example -k 10 -p 4 -l 20 -n 2000 -e 0 -e 5 -c 0
+./raid/xor_example -k 10 -p 4 -l 20 -n 2000 -e 0 -e 5 -c 1
+./raid/xor_example -k 10 -p 4 -l 20 -n 2000 -e 0 -e 1 -e 2 -c 0
+./raid/xor_example -k 10 -p 4 -l 20 -n 2000 -e 0 -e 1 -e 2 -c 1
+./raid/xor_example -k 10 -p 4 -l 20 -n 2000 -e 0 -e 1 -e 2 -e 3 -c 0
+./raid/xor_example -k 10 -p 4 -l 20 -n 2000 -e 0 -e 1 -e 2 -e 3 -c 1
+
 # test packetsize
