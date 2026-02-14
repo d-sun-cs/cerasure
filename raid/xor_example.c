@@ -2045,8 +2045,8 @@ int encode_deforest_test(int k, int p, int w, int len, int packetsize, int *eras
 	for (i = 0; i < en_n; i++)
 	{
 		clock_gettime(CLOCK_REALTIME, &time1);
-		// slp_encode_best_finally(k, p, w, schedule, frag_ptrs, &frag_ptrs[k], alignlen, packetsize);
-		encode_base_deforestation(k, p, w, schedule, frag_ptrs, &frag_ptrs[k], alignlen, packetsize);
+		slp_encode_best_finally(k, p, w, schedule, frag_ptrs, &frag_ptrs[k], alignlen, packetsize);
+		// encode_base_deforestation(k, p, w, schedule, frag_ptrs, &frag_ptrs[k], alignlen, packetsize);
 		clock_gettime(CLOCK_REALTIME, &time2);
 		encode_time = (time2.tv_sec - time1.tv_sec) * 1000000000 + (time2.tv_nsec - time1.tv_nsec);
 		encode_time_arrs[i] = encode_time;
