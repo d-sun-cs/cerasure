@@ -1,5 +1,10 @@
 # make ex
-make ex CFLAGS="-mavx2 -O3 -w"
+
+docker start ceph_build
+docker exec -it -w /ceph/cerasure ceph_build /bin/bash
+
+
+make ex CFLAGS="-mavx2 -O3" LDFLAGS="-Wl,--allow-multiple-definition"
 
 ./raid/xor_example -k 8 -p 3 -l 16 -n 2000 -e 0
 
